@@ -19,7 +19,8 @@ if ! command -v conda &>/dev/null; then
     rm /tmp/miniconda.sh
     "$HOME/miniconda3/bin/conda" init bash
 fi
-eval "$("$HOME/miniconda3/bin/conda" shell.bash hook)"
+CONDA_BIN=$(command -v conda 2>/dev/null || echo "$HOME/miniconda3/bin/conda")
+eval "$("$CONDA_BIN" shell.bash hook)"
 
 # ── 2. Conda environment ──────────────────────────────────────────────────────
 if conda env list | grep -q "^${ENV_NAME} "; then
@@ -32,16 +33,17 @@ conda activate "$ENV_NAME"
 
 # ── 3. PyTorch with CUDA 12.8 ─────────────────────────────────────────────────
 echo "[setup] Installing PyTorch (CUDA 12.8)..."
-uv pip install torch torchvision torchaudio \
+conda run -n "$ENV_NAME" uv pip install torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu128
 
-# ── 4. Remaining requirements ─────────────────────────────────────────────────
+# ── 4. Remaining requirements (torch already installed above) ─────────────────
 echo "[setup] Installing requirements..."
-uv pip install -r "$REPO_DIR/requirements.txt"
+grep -vE "^torch(vision|audio)?($|[>=<! ])" "$REPO_DIR/requirements.txt" \
+    | conda run -n "$ENV_NAME" uv pip install -r /dev/stdin
 
 # ── 5. Install starter kit in editable mode ───────────────────────────────────
 echo "[setup] Installing starter kit package..."
-pip install -e "$REPO_DIR/"
+conda run -n "$ENV_NAME" pip install -e "$REPO_DIR/"
 
 # ── 6. Training data from HuggingFace ─────────────────────────────────────────
 echo "[setup] Downloading training data..."
