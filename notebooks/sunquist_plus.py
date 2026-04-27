@@ -22,10 +22,6 @@ class SundquistPlusNetwork(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.normalisation = InputNormalisation(
-            mean=torch.tensor(_normalisation_mean), std=torch.tensor(_normalisation_std)
-        )
-
         self.sundquist = SundquistNetwork()
 
         # Example extra head on top of Sundquist output
@@ -50,9 +46,6 @@ class SundquistPlusNetwork(torch.nn.Module):
         # Move the feature dimension to the end for normalisation and MLP
         mlp_input = flattened_output.movedim(1, -1)
 
-        # Apply input normalisation
-        mlp_input = self.normalisation(mlp_input)
-
         # Apply the correction head
         correction = self.correction_head(mlp_input)  # (B, H * W)
 
@@ -63,3 +56,14 @@ class SundquistPlusNetwork(torch.nn.Module):
         correction = correction.view(sundquist_output.size(0), 1, H, W)  # (B, 1, H, W)
 
         return correction
+
+
+class SundquistVerticalNetwork(torch.nn.Module):
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+    def forward(
+        self, input_level: torch.Tensor, input_auxiliary: torch.Tensor
+    ) -> torch.Tensor: ...
