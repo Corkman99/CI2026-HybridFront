@@ -13,38 +13,44 @@ from starter_kit.model import BaseModel
 
 H = 64
 W = 64
+L = 7
 
 
 class SundquistPlusNetwork(torch.nn.Module):
 
     def __init__(
         self,
+        linear_bias: bool = False,
     ) -> None:
         super().__init__()
 
         self.sundquist = SundquistNetwork()
 
-        # Example extra head on top of Sundquist output
-        self.correction_head = torch.nn.Sequential(
-            torch.nn.Linear(H * W, H * W),
-            torch.torch.nn.sigmoid(),
+        self.normalization = InputNormalisation(
+            mean=_normalisation_mean, std=_normalisation_std
         )
+        self.correction_head = torch.nn.Linear(L * H * W, H * W, bias=linear_bias)
+
+        self.sigmoid = torch.nn.Sigmoid()
 
     def forward(
         self, input_level: torch.Tensor, input_auxiliary: torch.Tensor
     ) -> torch.Tensor:
-        # sunshape
+        # Sunquist estimate
         sundquist_output = self.sundquist(
             input_level, input_auxiliary
         )  # (B, PL=1, H, W)
 
+        # Residual estimate:
         # We collapse all levels into the channel dimension
-        flattened_output = sundquist_output.reshape(
-            sundquist_output.shape[0], -1, *sundquist_output.shape[-2:]
+        flattened_output = input_level.reshape(
+            input_level.shape[0], -1, *input_level.shape[-2:]
         )
 
         # Move the feature dimension to the end for normalisation and MLP
         mlp_input = flattened_output.movedim(1, -1)
+
+        mlp_input = self.normalization(mlp_input)
 
         # Apply the correction head
         correction = self.correction_head(mlp_input)  # (B, H * W)
@@ -55,15 +61,4 @@ class SundquistPlusNetwork(torch.nn.Module):
         # Reshape correction to match the spatial dimensions
         correction = correction.view(sundquist_output.size(0), 1, H, W)  # (B, 1, H, W)
 
-        return correction
-
-
-class SundquistVerticalNetwork(torch.nn.Module):
-
-    def __init__(
-        self,
-    ) -> None: ...
-
-    def forward(
-        self, input_level: torch.Tensor, input_auxiliary: torch.Tensor
-    ) -> torch.Tensor: ...
+        return self.sigmoid(sundquist_output + correction)

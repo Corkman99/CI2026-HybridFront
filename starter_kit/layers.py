@@ -16,7 +16,7 @@ main_logger = logging.getLogger(__name__)
 
 
 class InputNormalisation(torch.nn.Module):
-    r'''
+    r"""
     Normalises input tensors by a predefined mean and standard
     deviation, stored as non-trainable buffers.
 
@@ -52,13 +52,10 @@ class InputNormalisation(torch.nn.Module):
     >>> x = torch.randn(8, 3, 64, 64)
     >>> norm(x).shape
     torch.Size([8, 3, 64, 64])
-    '''
+    """
 
     def __init__(
-            self,
-            mean: torch.Tensor,
-            std: torch.Tensor,
-            eps: float = 1e-6
+        self, mean: torch.Tensor, std: torch.Tensor, eps: float = 1e-6
     ) -> None:
         super().__init__()
         self.register_buffer("mean", mean)
@@ -66,7 +63,7 @@ class InputNormalisation(torch.nn.Module):
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        r'''
+        r"""
         Normalise ``x`` to zero mean and unit variance.
 
         Parameters
@@ -79,5 +76,22 @@ class InputNormalisation(torch.nn.Module):
         -------
         torch.Tensor
             Normalised tensor of the same shape as ``x``.
-        '''
+        """
         return (x - self.mean) / (self.std + self.eps)
+
+
+# Copilot-written
+class PerPixelLinear(torch.nn.Module):
+    def __init__(self, in_features, out_features, H, W, bias=False):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.randn(in_features, out_features, H, W))
+        self.bias = (
+            torch.nn.Parameter(torch.zeros(out_features, H, W)) if bias else None
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, in_features, H, W)
+        out = torch.einsum("bihw,iohw->bohw", x, self.weight)
+        if self.bias is not None:
+            out = out + self.bias.unsqueeze(0)
+        return out
