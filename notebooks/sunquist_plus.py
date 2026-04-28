@@ -74,9 +74,13 @@ class SundquistSimpleVerticalNetwork(torch.nn.Module):
     def __init__(
         self,
     ) -> None:
+        super().__init__()
         self.sundquist = SundquistNetwork()
 
-        self.overlap_weights = torch.nn.Parameter(torch.ones(L, H, W))
+        self.L = 7
+        self.H = 64
+        self.W = 64
+        self.overlap_weights = torch.nn.Parameter(torch.ones(self.L, self.H, self.W))
 
         self.sigmoid = torch.nn.Sigmoid()
 
@@ -103,16 +107,23 @@ class SundquistResidualVerticalNetwork(torch.nn.Module):
     """
 
     def __init__(self, column_hidden_size=4) -> None:
+        super().__init__()
         self.sundquist = SundquistNetwork()
-
+        self.L = 7
+        self.H = 64
+        self.W = 64
         self.normalization = InputNormalisation(
             mean=_normalisation_mean, std=_normalisation_std
         )
 
         self.pixel_column = torch.nn.Sequential(
-            PerPixelLinear(in_features=L, out_features=column_hidden_size, H=H, W=W),
+            PerPixelLinear(
+                in_features=self.L, out_features=column_hidden_size, H=self.H, W=self.W
+            ),
             torch.nn.ReLU(),
-            PerPixelLinear(in_features=column_hidden_size, out_features=L, H=H, W=W),
+            PerPixelLinear(
+                in_features=column_hidden_size, out_features=self.L, H=self.H, W=self.W
+            ),
             torch.nn.Sigmoid(),
         )
 
@@ -147,7 +158,7 @@ class SundquistResidualVerticalNetwork(torch.nn.Module):
 
         # Reshape correction to match the spatial dimensions
         correction_per_level = correction_per_level.view(
-            sundquist_output_level.size(0), 1, H, W
+            sundquist_output_level.size(0), 1, self.H, self.W
         )  # (B, 1, H, W)
 
         # Combine
@@ -155,5 +166,6 @@ class SundquistResidualVerticalNetwork(torch.nn.Module):
             sundquist_output_level + correction_per_level
         )  # (B, L, H, W)
 
-        total_cloud_cover = 1 - torch.prod(combined_per_level, dim=2)
+        
+        # Combine 
         return total_cloud_cover
