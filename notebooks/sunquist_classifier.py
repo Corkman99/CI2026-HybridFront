@@ -35,16 +35,14 @@ class ClassificationNetwork(torch.nn.Module):
     First run the model through
     """
 
-    def __init__(
-        self, H=64, W=64, L=7, feature_index=[0, 1, 2], aux_index=[0, 1]
-    ) -> None:
+    def __init__(self, input_dim=0, hidden_dim=0, n_layers=0) -> None:
         super().__init__()
 
-        self.L = L
-        self.H = H
-        self.W = W
-        self.feature_index = feature_index
-        self.aux_index = aux_index
+        self.L = 7
+        self.H = 64
+        self.W = 64
+        self.feature_index = [0, 1, 2]  # temperature, relative humidity, geopotential
+        self.aux_index = [0, 1]  # land sea mask and geopotential only
 
         # Build normalization only for the selected feature channels.
         level_mean = torch.tensor(_normalisation_mean[:-2]).reshape(-1, self.L)
