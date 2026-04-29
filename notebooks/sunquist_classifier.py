@@ -148,16 +148,13 @@ def estimate_cross_entropy(
         Scalar cross entropy loss.
     """
     assert tol >= 0, "Tolerance must be positive"
-    targets_ = targets.clone().detach()
-
     if not (
-        isinstance(predictions, xr.DataArray) and isinstance(targets, xr.DataArray)
+        isinstance(predictions, torch.Tensor) and isinstance(targets, torch.Tensor)
     ):
-        raise TypeError("Both predictions and targets must be xarray.DataArray.")
+        raise TypeError("Both predictions and targets must be torch.Tensor.")
 
-    pred_tensor = torch.as_tensor(predictions.to_numpy())
-    targets_ = torch.as_tensor(targets.to_numpy())
-    targets_ = targets_.to(pred_tensor.device)
+    pred_tensor = predictions
+    targets_ = targets.clone().detach().to(pred_tensor.device)
 
     class_targets = torch.zeros_like(targets_, dtype=torch.long)
     class_targets = torch.where(targets_ <= tol, 0, class_targets)
