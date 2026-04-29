@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import torch
 import xarray as xr
@@ -5,6 +7,7 @@ import xarray as xr
 from starter_kit.baselines.mlp import _normalisation_mean, _normalisation_std
 from starter_kit.baselines.sundquist import SundquistNetwork
 from starter_kit.layers import InputNormalisation
+from starter_kit.model import BaseModel
 
 
 class PixelWiseClassifier(torch.nn.Module):
@@ -163,3 +166,57 @@ def _xarray_cross_entropy(
 
     # Convert back to xarray.DataArray
     return xr.DataArray(loss.item(), dims=predictions.dims, coords=predictions.coords)
+
+
+class ClassModel(BaseModel):
+    def estimate_loss(self, batch: dict[str, torch.Tensor]) -> dict[str, Any]:
+        r"""
+        Compute the primary training loss and prediction output.
+
+        Parameters
+        ----------
+        batch : Dict[str, torch.Tensor]
+            Batch dictionary containing ``input_level``,
+            ``input_auxiliary``, and ``target`` tensors.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with keys ``loss`` and ``prediction``.
+            ``loss`` is the mean absolute error and ``prediction`` is the
+            model output clamped to ``[0, 1]``.
+        """
+        prediction = self.network(
+            input_level=batch["input_level"], input_auxiliary=batch["input_auxiliary"]
+        )
+        loss = estimate_cross_entropy(prediction, batch["target"])
+
+        return {"loss": loss, "prediction": prediction}
+
+    def estimate_auxiliary_loss(
+        self, batch: dict[str, torch.Tensor], outputs: dict[str, Any]
+    ) -> dict[str, Any]:
+        r"""
+        Compute auxiliary regression and classification metrics.
+
+        Parameters
+        ----------
+        batch : Dict[str, torch.Tensor]
+            Batch dictionary containing the ground-truth ``target`` tensor.
+        outputs : Dict[str, Any]
+            Model outputs from ``estimate_loss`` containing ``prediction``.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with keys ``mse`` and ``accuracy``.
+            ``mse`` is the mean squared error and ``accuracy`` is the
+            thresholded classification accuracy at 0.5.
+        """
+        mse = (outputs["prediction"] - batch["target"]).pow(2)
+        mse = (mse * self.lat_weights).mean()
+        prediction_bool = (outputs["prediction"] > 0.5).float()
+        target_bool = (batch["target"] > 0.5).float()
+        accuracy = (prediction_bool == target_bool).float()
+        accuracy = (accuracy * self.lat_weights).mean()
+        return {"mse": mse, "accuracy": accuracy}
