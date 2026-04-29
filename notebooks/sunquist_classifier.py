@@ -126,55 +126,50 @@ class SundquistClassifier(torch.nn.Module):
 
 
 def estimate_cross_entropy(
-    predictions: xr.DataArray,
-    targets: xr.DataArray,
+    predictions: Any,
+    targets: Any,
     tol: float = 1e-8,
-) -> xr.DataArray:
+) -> torch.Tensor:
     """
     Compute cross entropy loss between predictions and targets.
 
     Parameters
     ----------
-    predictions: xr.DataArray
-        Predicted values.
-    targets: xr.DataArray
-        Target observations.
+    predictions : torch.Tensor or xr.DataArray
+        Predicted logits with shape ``(B, num_classes, H, W)``.
+    targets : torch.Tensor or xr.DataArray
+        Target values in ``[0, 1]`` that will be mapped to class labels.
+    tol : float, optional
+        Tolerance used to bin target values into classes 0, 1, or 2.
 
-    Returns:
-        Cross entropy loss as xarray.DataArray
+    Returns
+    -------
+    torch.Tensor
+        Scalar cross entropy loss.
     """
     assert tol >= 0, "Tolerance must be positive"
+    targets_ = targets.clone().detach()
 
-    target_copy = targets.clone()
-    # format targets into three classes: 0, 1 or in-between
-    target_copy = torch.where(
-        target_copy < tol, torch.zeros_like(target_copy), target_copy
-    )
-    target_copy = torch.where(
-        target_copy > 1 - tol, torch.ones_like(target_copy), target_copy
-    )
-    target_copy = torch.where(
-        (target_copy >= tol) & (target_copy <= 1 - tol),
-        torch.full_like(target_copy, 0.5),
-        target_copy,
-    )
+    if isinstance(predictions, xr.DataArray):
+        predictions = torch.as_tensor(predictions.values)
+    if isinstance(targets_, xr.DataArray):
+        targets_ = torch.as_tensor(targets_.values)
 
-    return _xarray_cross_entropy(predictions, target_copy)
+    if not isinstance(predictions, torch.Tensor):
+        raise TypeError("predictions must be a torch.Tensor or xarray.DataArray")
+    if not isinstance(targets_, torch.Tensor):
+        raise TypeError("targets must be a torch.Tensor or xarray.DataArray")
 
+    targets_ = targets_.to(predictions.device)
 
-def _xarray_cross_entropy(
-    predictions: xr.DataArray, targets: xr.DataArray
-) -> xr.DataArray:
-    # Convert to PyTorch tensors
-    pred_tensor = torch.from_numpy(predictions.values)
-    target_tensor = torch.from_numpy(targets.values)
+    class_targets = torch.zeros_like(targets_, dtype=torch.long)
+    class_targets = torch.where(targets_ <= tol, 0, class_targets)
+    class_targets = torch.where(targets_ >= 1 - tol, 2, class_targets)
+    in_between = (targets_ > tol) & (targets_ < 1 - tol)
+    class_targets = torch.where(in_between, 1, class_targets)
 
-    # Compute cross entropy loss
     loss_fn = torch.nn.CrossEntropyLoss()
-    loss = loss_fn(pred_tensor, target_tensor)
-
-    # Convert back to xarray.DataArray
-    return xr.DataArray(loss.item(), dims=predictions.dims, coords=predictions.coords)
+    return loss_fn(predictions, class_targets)
 
 
 class ClassModel(BaseModel):
