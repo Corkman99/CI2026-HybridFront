@@ -145,10 +145,19 @@ def estimate_cross_entropy(
     """
     assert tol >= 0, "Tolerance must be positive"
 
-    target_copy = targets.copy()
-    target_copy[target_copy <= 0 + tol] = 0
-    target_copy[0 + tol < target_copy < 1 - tol] = 1
-    target_copy[target_copy >= 1 - tol] = 2
+    target_copy = targets.clone()
+    # format targets into three classes: 0, 1 or in-between
+    target_copy = torch.where(
+        target_copy < tol, torch.zeros_like(target_copy), target_copy
+    )
+    target_copy = torch.where(
+        target_copy > 1 - tol, torch.ones_like(target_copy), target_copy
+    )
+    target_copy = torch.where(
+        (target_copy >= tol) & (target_copy <= 1 - tol),
+        torch.full_like(target_copy, 0.5),
+        target_copy,
+    )
 
     return _xarray_cross_entropy(predictions, target_copy)
 
