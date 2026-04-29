@@ -95,3 +95,24 @@ class PerPixelLinear(torch.nn.Module):
         if self.bias is not None:
             out = out + self.bias.unsqueeze(0)
         return out
+
+
+class PixelWiseClassifier(torch.nn.Module):
+    def __init__(
+        self, in_channels=3, levels=7, aux_channels=0, hidden=64, num_classes=3
+    ):
+        super().__init__()
+        self.feat_dim = in_channels * levels + aux_channels
+        self.net = torch.nn.Sequential(
+            torch.nn.Conv2d(self.feat_dim, hidden, kernel_size=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Conv2d(hidden, hidden, kernel_size=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Conv2d(hidden, num_classes, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, L*in_channels + aux_channels, H, W)
+        x = x.view(x.size(0), self.feat_dim, x.size(-2), x.size(-1))
+        logits = self.net(x)  # (B, num_classes, H, W)
+        return logits

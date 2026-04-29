@@ -166,6 +166,5 @@ class SundquistResidualVerticalNetwork(torch.nn.Module):
             sundquist_output_level + correction_per_level
         )  # (B, L, H, W)
 
-        
-        # Combine 
+        # Combine
         return total_cloud_cover
