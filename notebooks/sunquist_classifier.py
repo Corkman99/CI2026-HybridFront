@@ -1,6 +1,5 @@
 from typing import Any
 
-import numpy as np
 import torch
 import xarray as xr
 
@@ -24,7 +23,6 @@ class PixelWiseClassifier(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, L*in_channels + aux_channels, H, W)
-        x = x.view(x.size(0), self.feat_dim, x.size(-2), x.size(-1))
         logits = self.net(x)  # (B, num_classes, H, W)
         return logits
 
@@ -45,27 +43,27 @@ class ClassificationNetwork(torch.nn.Module):
         self.L = L
         self.H = H
         self.W = W
+        self.feature_index = feature_index
+        self.aux_index = aux_index
 
-        # Limit to inputs expected to have the most impact, to limit over-fitting
-        self.classification_features_index = feature_index
-        # 0, "temperature"
-        # 1, "specific_humidity"
-        # 2, "geopot"
+        # Build normalization only for the selected feature channels.
+        level_mean = torch.tensor(_normalisation_mean[:-2]).reshape(-1, self.L)
+        level_std = torch.tensor(_normalisation_std[:-2]).reshape(-1, self.L)
+        selected_level_mean = level_mean[self.feature_index].reshape(-1)
+        selected_level_std = level_std[self.feature_index].reshape(-1)
 
-        self.classification_aux_index = aux_index
-        # 0,  # land sea mask
-        # 1,  # geopotential
-
-        self.classifier = ()
+        aux_mean = torch.tensor(_normalisation_mean[-2:])[self.aux_index]
+        aux_std = torch.tensor(_normalisation_std[-2:])[self.aux_index]
 
         self.normalization = InputNormalisation(
-            mean=_normalisation_mean, std=_normalisation_std
+            mean=torch.cat([selected_level_mean, aux_mean]),
+            std=torch.cat([selected_level_std, aux_std]),
         )
 
         self.pixel_classifier = PixelWiseClassifier(
-            in_channels=len(self.classification_features_index),
+            in_channels=len(self.feature_index),
             levels=self.L,
-            aux_channels=len(self.classification_aux_index),
+            aux_channels=len(self.aux_index),
             hidden=16,
             num_classes=3,
         )
@@ -74,28 +72,26 @@ class ClassificationNetwork(torch.nn.Module):
         self, input_level: torch.Tensor, input_auxiliary: torch.Tensor
     ) -> torch.Tensor:
 
-        # We collapse all levels into the channel dimension
-        selected_inputs = input_level[:, self.classification_features_index, :, :, :]
-        flattened_input_level = selected_inputs.reshape(
+        # Select only the requested feature channels and collapse levels
+        selected_inputs = input_level[:, self.feature_index, :, :, :]
+        flattened_input_levels = selected_inputs.reshape(
             selected_inputs.shape[0], -1, *selected_inputs.shape[-2:]
         )
-        # output shape: (B, L*in_channels, H, W)
+        selected_auxiliary = input_auxiliary[:, self.aux_index, :, :]
+
+        # Concatenate the selected level and auxiliary fields
+        mlp_input = torch.cat([flattened_input_levels, selected_auxiliary], dim=1)
+        # output shape: (B, len(feature_index)*L + len(aux_index), H, W)
 
         # Move the feature dimension to the end for normalisation and MLP
-        mlp_input = flattened_input_level.movedim(1, -1)
-        # output shape: (B, H, W, L*in_channels)
+        mlp_input = mlp_input.movedim(1, -1)
+        # output shape: (B, H, W, selected_feature_dim)
 
         mlp_input = self.normalization(mlp_input)
 
         # Reshape to what PixelWiseClassifier expects
-        mlp_input = torch.cat(
-            [
-                mlp_input.movedim(-1, 1),
-                input_auxiliary[:, self.classification_aux_index, :, :],
-            ],
-            dim=1,
-        )
-        # output shape: (B, L*in_channels + aux_channels, H, W)
+        mlp_input = mlp_input.movedim(-1, 1)
+        # output shape: (B, selected_feature_dim, H, W)
 
         # Classify:
         predicted_class = self.pixel_classifier(mlp_input)
@@ -116,14 +112,19 @@ class SundquistClassifier(torch.nn.Module):
 
         # Classify:
         predicted_class = self.classifier(input_level, input_auxiliary)
+        predicted_label = predicted_class.argmax(dim=1, keepdim=True)
 
         # Sundquist prediction:
         sundquist_output = self.sundquist.forward(input_level, input_auxiliary)
 
-        return (
-            sundquist_output * predicted_class[predicted_class == 1]
-            + predicted_class[predicted_class != 1]
-        )  # Keep only the "in-between" class
+        # Build a combined prediction:
+        # - class 0 => exact zero
+        # - class 1 => use Sundquist output
+        # - class 2 => exact one
+        output = torch.zeros_like(sundquist_output)
+        output = torch.where(predicted_label == 2, torch.ones_like(output), output)
+        output = torch.where(predicted_label == 1, sundquist_output, output)
+        return output
 
 
 def estimate_cross_entropy(
@@ -146,11 +147,12 @@ def estimate_cross_entropy(
     """
     assert tol >= 0, "Tolerance must be positive"
 
-    targets[targets <= 0 + tol] = 0
-    targets[0 + tol < targets < 1 - tol] = 1
-    targets[targets >= 1 - tol] = 2
+    target_copy = targets.copy()
+    target_copy[target_copy <= 0 + tol] = 0
+    target_copy[0 + tol < target_copy < 1 - tol] = 1
+    target_copy[target_copy >= 1 - tol] = 2
 
-    return _xarray_cross_entropy(predictions, targets)
+    return _xarray_cross_entropy(predictions, target_copy)
 
 
 def _xarray_cross_entropy(
