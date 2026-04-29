@@ -154,6 +154,10 @@ def estimate_cross_entropy(
         raise TypeError("Both predictions and targets must be torch.Tensor.")
 
     pred_tensor = predictions
+
+    if pred_tensor.ndim == 4 and pred_tensor.shape[1] == 1:
+        pred_tensor = pred_tensor.squeeze(1)
+
     targets_ = targets.clone().detach().to(pred_tensor.device)
 
     class_targets = torch.zeros_like(targets_, dtype=torch.long)
