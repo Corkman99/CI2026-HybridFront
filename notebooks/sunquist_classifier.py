@@ -150,17 +150,14 @@ def estimate_cross_entropy(
     assert tol >= 0, "Tolerance must be positive"
     targets_ = targets.clone().detach()
 
-    if isinstance(predictions, xr.DataArray):
-        predictions = torch.as_tensor(predictions.values)
-    if isinstance(targets_, xr.DataArray):
-        targets_ = torch.as_tensor(targets_.values)
+    if not (
+        isinstance(predictions, xr.DataArray) and isinstance(targets, xr.DataArray)
+    ):
+        raise TypeError("Both predictions and targets must be xarray.DataArray.")
 
-    if not isinstance(predictions, torch.Tensor):
-        raise TypeError("predictions must be a torch.Tensor or xarray.DataArray")
-    if not isinstance(targets_, torch.Tensor):
-        raise TypeError("targets must be a torch.Tensor or xarray.DataArray")
-
-    targets_ = targets_.to(predictions.device)
+    pred_tensor = torch.as_tensor(predictions.to_numpy())
+    targets_ = torch.as_tensor(targets.to_numpy())
+    targets_ = targets_.to(pred_tensor.device)
 
     class_targets = torch.zeros_like(targets_, dtype=torch.long)
     class_targets = torch.where(targets_ <= tol, 0, class_targets)
@@ -169,7 +166,7 @@ def estimate_cross_entropy(
     class_targets = torch.where(in_between, 1, class_targets)
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    return loss_fn(predictions, class_targets)
+    return loss_fn(pred_tensor, class_targets)
 
 
 class ClassModel(BaseModel):
